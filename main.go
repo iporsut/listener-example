@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
@@ -54,16 +55,9 @@ func adminService() {
 			log.Fatal(err)
 		}
 		go func(c net.Conn) {
-			var msg string
-			for {
-				_, err := fmt.Fscanln(c, &msg)
-				if err != nil {
-					if err.Error() == "EOF" {
-						break
-					}
-					continue
-				}
-				clientChan.Broadcast(msg)
+			scanner := bufio.NewScanner(c)
+			for scanner.Scan() {
+				clientChan.Broadcast(scanner.Text())
 			}
 			c.Close()
 		}(conn)
@@ -89,7 +83,7 @@ func clientService() {
 					b := make([]byte, 1)
 					_, err := c.Read(b)
 					if err != nil {
-						closeCh <- struct{}{}
+						close(closeCh)
 						break
 					}
 				}
@@ -98,15 +92,14 @@ func clientService() {
 			ch := make(chan string)
 			key := time.Now().Unix()
 			clientChan.Set(key, ch)
-			for {
+			for closed := false; !closed; {
 				select {
 				case msg := <-ch:
 					fmt.Fprintln(c, msg)
 				case <-closeCh:
-					break
+					closed = true
 				}
 			}
-
 			clientChan.Del(key)
 			c.Close()
 		}(conn)
